@@ -352,7 +352,7 @@ resource "aws_db_subnet_group" "private_rds_subnet_group" {
 resource "aws_instance" "Terraform_Managed" {
   ami                         = var.ami_id
   instance_type               = "t2.micro"
-  key_name                    = "SD"
+  key_name                    = "VB"
   subnet_id                   = aws_subnet.public-1.id
   vpc_security_group_ids      = [aws_security_group.instance.id]
   associate_public_ip_address = true # enable public IP and DNS for the instance
