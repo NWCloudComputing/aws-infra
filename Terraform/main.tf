@@ -201,13 +201,6 @@ resource "aws_security_group" "database" {
     security_groups = [aws_security_group.instance.id]
   }
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["10.0.0.0/8"] # Restrict SSH access to VPC CIDR range
-  }
-
   egress {
     from_port   = 0
     to_port     = 0
@@ -432,3 +425,22 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
   role = aws_iam_role.ec2_csye6225_role.name
 }
 
+output "public_ip" {
+  value = aws_instance.Terraform_Managed[0].public_ip
+}
+
+
+data "aws_route53_zone" "main-route" {
+  name = var.domain_name
+}
+
+resource "aws_route53_record" "web" {
+  name    = var.domain_name
+  type    = "A"
+  zone_id = data.aws_route53_zone.main-route.zone_id
+
+  ttl = 300
+  records = [
+    aws_instance.Terraform_Managed[0].public_ip,
+  ]
+}
