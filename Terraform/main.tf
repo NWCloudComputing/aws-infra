@@ -462,7 +462,7 @@ resource "aws_iam_role_policy_attachment" "webapp_s3_policy_attachment" {
 }
 
 resource "aws_iam_role_policy_attachment" "cloudwatch_agent_policy_attachment" {
-//  name       = "cloudwatch_policy_attachment"
+  //  name       = "cloudwatch_policy_attachment"
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
   role       = aws_iam_role.ec2_csye6225_role.name
 }
