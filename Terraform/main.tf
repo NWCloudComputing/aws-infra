@@ -504,7 +504,7 @@ resource "aws_launch_template" "launch_template" {
   name          = "asg_launch_config"
   image_id      = var.ami_id
   instance_type = "t2.micro"
-  key_name ="SD"
+  key_name ="VB"
   disable_api_termination = true
   network_interfaces {
     associate_public_ip_address = true
@@ -538,7 +538,7 @@ resource "aws_launch_template" "launch_template" {
 # resource "aws_instance" "Terraform_Managed" {
 #   ami                         = var.ami_id
 #   instance_type               = "t2.micro"
-#   key_name                    = "SD"
+#   key_name                    = "VB"
 #   subnet_id                   = aws_subnet.public-1.id
 #   vpc_security_group_ids      = [aws_security_group.instance.id]
 #   associate_public_ip_address = true # enable public IP and DNS for the instance
