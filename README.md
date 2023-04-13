@@ -43,3 +43,17 @@ The below commands are used to setup the virtual private cloud (vpc) network inf
 4. The EC2 instance is created in the VPC created and is attached to the github secrets configured
    
 5. "terraform destroy" -var-file var.tfvars" - It will destroy the network infrastructure setup on AWS.
+
+****************************************Assignment9****************************************
+
+The command which we are using to upload the namecheap ssl certificate to aws is given below
+
+$ aws --profile demo acm import-certificate --certificate fileb://Certificate.pem
+      --certificate-chain fileb://CertificateChain.pem
+      --private-key fileb://PrivateKey.pem
+
+I replaced the file paths with my file path with extension names to upload the certificate.
+
+Added 2 seperate kms keys one for ebs volumes encryption and the other for rds instance encryption.
+
+Modified load balancer security group ingress rule to run on port 443(https).
