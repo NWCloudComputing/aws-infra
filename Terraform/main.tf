@@ -152,19 +152,19 @@ resource "aws_security_group" "instance" {
   vpc_id      = aws_vpc.vpc1.id
 
   ingress {
-    from_port = 22
-    to_port   = 22
-    protocol  = "tcp"
-    security_groups = [aws_security_group.load_balancer.id ]
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
+    cidr_blocks     = ["0.0.0.0/0"]
   }
 
   ingress {
-    from_port = 3000
-    to_port   = 3000
-    protocol  = "tcp"
-    security_groups = [aws_security_group.load_balancer.id ]
-   // cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
+    // cidr_blocks = ["0.0.0.0/0"]
   }
 
 
@@ -206,8 +206,8 @@ resource "aws_security_group" "load_balancer" {
   vpc_id      = aws_vpc.vpc1.id
 
   ingress {
-    from_port   = 80
-    to_port     = 80
+    from_port   = 443
+    to_port     = 443
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -231,7 +231,7 @@ resource "aws_lb" "load_balancer" {
   security_groups    = [aws_security_group.load_balancer.id]
   subnets            = [aws_subnet.public-1.id, aws_subnet.public-2.id, aws_subnet.public-3.id]
 
-  enable_deletion_protection = true
+  enable_deletion_protection = false
 
   tags = {
     Environment = "loadbalancer"
@@ -247,8 +247,8 @@ resource "aws_lb_target_group" "alb_tg" {
   vpc_id      = aws_vpc.vpc1.id
 
   health_check {
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
     timeout             = 10
     interval            = 300
     path                = "/healthz"
@@ -260,8 +260,10 @@ resource "aws_lb_target_group" "alb_tg" {
 resource "aws_lb_listener" "lb_listener" {
 
   load_balancer_arn = aws_lb.load_balancer.arn
-  port              = "80"
-  protocol          = "HTTP"
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy      = "ELBSecurityPolicy-TLS-1-2-Ext-2018-06"
+  certificate_arn = "arn:aws:acm:us-east-1:${var.account_id}:certificate/cb883211-7199-4d52-a80d-caa618db3a75"
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.alb_tg.arn
@@ -297,32 +299,9 @@ resource "aws_iam_policy" "webapp_s3_policy" {
   })
 }
 
-
-# resource "aws_iam_policy" "cloudwatch_agent_policy" {
-#   name = "CloudWatchAgentPolicy"
-#   policy = jsonencode({
-#     Version = "2012-10-17"
-#     Statement = [
-#       {
-#         Action = [
-#           "cloudwatch:GetMetricStatistics",
-#           "cloudwatch:GetMetricData",
-#           "cloudwatch:ListMetrics",
-#           "cloudwatch:PutMetricData",
-#           "logs:CreateLogGroup",
-#           "logs:CreateLogStream",
-#           "logs:PutLogEvents"
-#         ]
-#         Effect   = "Allow"
-#         Resource = ["*"]
-#       },
-#     ]
-#   })
-# }
-
 resource "aws_s3_bucket" "private_s3_bucket" {
   bucket        = "my-bucket-${random_id.random.hex}"
-  acl           = "private"
+  //acl           = "private"
   force_destroy = true
 
   tags = {
@@ -416,8 +395,11 @@ resource "aws_db_instance" "rds_instance" {
   db_subnet_group_name   = aws_db_subnet_group.private_rds_subnet_group.name
   publicly_accessible    = false
   skip_final_snapshot    = true
+  storage_encrypted      = true
   parameter_group_name   = aws_db_parameter_group.postgres_params.name
   vpc_security_group_ids = [aws_security_group.database.id]
+
+  kms_key_id = aws_kms_key.rds_key.arn
 
   tags = {
     Name = "csye6225-rds"
@@ -433,12 +415,12 @@ resource "aws_autoscaling_policy" "upautoscaling_policy" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "scaleuppolicyalarm" {
-  alarm_name          = "scaleuppolicyalarm"
+  alarm_name          = "scaleup_alarm"
   comparison_operator = "GreaterThanOrEqualToThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = 120
+  period              = 60
   statistic           = "Average"
   threshold           = 5
 
@@ -459,12 +441,12 @@ resource "aws_autoscaling_policy" "downautoscaling_policy" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "scaledownpolicyalarm" {
-  alarm_name          = "scaledownpolicyalarm"
+  alarm_name          = "scaledown_alarm"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = 2
   metric_name         = "CPUUtilization"
   namespace           = "AWS/EC2"
-  period              = 120
+  period              = 60
   statistic           = "Average"
   threshold           = 3
 
@@ -474,12 +456,200 @@ resource "aws_cloudwatch_metric_alarm" "scaledownpolicyalarm" {
 
   alarm_description = "ec2 cpu utilization monitoring"
   alarm_actions     = [aws_autoscaling_policy.downautoscaling_policy.arn]
+
 }
+
+resource "aws_kms_key" "kms_key"{
+  
+  description             = "KMS key for Ebs"
+  deletion_window_in_days = 10
+  policy=  jsonencode({
+      Version = "2012-10-17",
+      Statement = [
+        {
+            "Sid": "Enable IAM User Permissions",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${var.account_id}:root"
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+        },
+
+        {
+            "Sid": "Allow access for Key Administrators",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                ]
+            },
+            "Action": [
+                "kms:Create*",
+                "kms:Describe*",
+                "kms:Enable*",
+                "kms:List*",
+                "kms:Put*",
+                "kms:Update*",
+                "kms:Revoke*",
+                "kms:Disable*",
+                "kms:Get*",
+                "kms:Delete*",
+                "kms:TagResource",
+                "kms:UntagResource",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Allow use of the key",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                ]
+            },
+            "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Allow attachment of persistent resources",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/elasticloadbalancing.amazonaws.com/AWSServiceRoleForElasticLoadBalancing",
+                    "arn:aws:iam::${var.account_id}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+                ]
+            },
+            "Action": [
+                "kms:CreateGrant",
+                "kms:ListGrants",
+                "kms:RevokeGrant"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "Bool": {
+                    "kms:GrantIsForAWSResource": "true"
+                }
+            }
+        }
+      ]
+    })
+
+}
+
+
+
+resource "aws_kms_alias" "ebs_key_alias" {
+  name          = "alias/ebs_key_t2"
+  target_key_id = aws_kms_key.kms_key.key_id
+}
+
+
+#rds key
+
+resource "aws_kms_key" "rds_key"{
+  
+  description             = "KMS key for rds"
+  deletion_window_in_days = 10
+  policy=  jsonencode({
+      Version = "2012-10-17",
+      Statement = [
+        {
+            "Sid": "Enable IAM User Permissions",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${var.account_id}:root"
+            },
+            "Action": "kms:*",
+            "Resource": "*"
+        },
+        {
+            "Sid": "Allow access for Key Administrators",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${var.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+            },
+            "Action": [
+                "kms:Create*",
+                "kms:Describe*",
+                "kms:Enable*",
+                "kms:List*",
+                "kms:Put*",
+                "kms:Update*",
+                "kms:Revoke*",
+                "kms:Disable*",
+                "kms:Get*",
+                "kms:Delete*",
+                "kms:TagResource",
+                "kms:UntagResource",
+                "kms:ScheduleKeyDeletion",
+                "kms:CancelKeyDeletion"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Allow use of the key",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${var.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+            },
+            "Action": [
+                "kms:Encrypt",
+                "kms:Decrypt",
+                "kms:ReEncrypt*",
+                "kms:GenerateDataKey*",
+                "kms:DescribeKey"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "Allow attachment of persistent resources",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": "arn:aws:iam::${var.account_id}:role/aws-service-role/rds.amazonaws.com/AWSServiceRoleForRDS"
+            },
+            "Action": [
+                "kms:CreateGrant",
+                "kms:ListGrants",
+                "kms:RevokeGrant"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "Bool": {
+                    "kms:GrantIsForAWSResource": "true"
+                }
+            }
+        }
+
+      ]
+    })
+
+}
+
+resource "aws_kms_alias" "rds_key_alias" {
+  name          = "alias/rds_key_t2"
+  target_key_id = aws_kms_key.rds_key.key_id
+}
+
+# resource "aws_kms_key" "rds_kms_key" {
+#    description             = "KMS key 2"
+#   deletion_window_in_days = 7
+# }
 
 resource "aws_autoscaling_group" "autoscaling" {
 
-  name                      = "csye6225-asg-spring2023"
-  vpc_zone_identifier       = [aws_subnet.public-1.id,aws_subnet.public-2.id,aws_subnet.public-3.id]
+  name                      = "csye6225-autoscaling-group"
+  vpc_zone_identifier       = [aws_subnet.public-1.id, aws_subnet.public-2.id, aws_subnet.public-3.id]
   max_size                  = 3
   min_size                  = 1
   health_check_grace_period = 300
@@ -489,7 +659,8 @@ resource "aws_autoscaling_group" "autoscaling" {
 
   launch_template {
     id      = aws_launch_template.launch_template.id
-    version = aws_launch_template.launch_template.latest_version
+    //version = aws_launch_template.launch_template.latest_version
+    version = "$Latest"
   }
   target_group_arns = [aws_lb_target_group.alb_tg.arn]
   tag {
@@ -501,10 +672,10 @@ resource "aws_autoscaling_group" "autoscaling" {
 }
 
 resource "aws_launch_template" "launch_template" {
-  name          = "asg_launch_config"
-  image_id      = var.ami_id
-  instance_type = "t2.micro"
-  key_name ="VB"
+  name                    = "asg_launch_config"
+  image_id                = var.ami_id
+  instance_type           = "t2.micro"
+  key_name                = "VB"
   disable_api_termination = true
   network_interfaces {
     associate_public_ip_address = true
@@ -529,65 +700,13 @@ resource "aws_launch_template" "launch_template" {
       delete_on_termination = true
       volume_size           = 50
       volume_type           = "gp2"
+      kms_key_id            = aws_kms_key.kms_key.arn # Use the ARN of your customer managed KMS key
+      encrypted             = true
     }
   }
 
 }
 
- 
-# resource "aws_instance" "Terraform_Managed" {
-#   ami                         = var.ami_id
-#   instance_type               = "t2.micro"
-#   key_name                    = "VB"
-#   subnet_id                   = aws_subnet.public-1.id
-#   vpc_security_group_ids      = [aws_security_group.instance.id]
-#   associate_public_ip_address = true # enable public IP and DNS for the instance
-#   disable_api_termination     = false
-#   depends_on = [
-#     aws_db_instance.rds_instance
-#   ]
-#   user_data = <<-EOF
-# #!/bin/bash
-# cd /home/ec2-user/script
-# touch ./.env
-
-# echo "DB_HOST=$(echo ${aws_db_instance.rds_instance.endpoint} | cut -d ':' -f 1)" >> .env
-# echo "DB_USER=${aws_db_instance.rds_instance.username}" >> .env
-# echo "DB_PASSWORD=${aws_db_instance.rds_instance.password}" >> .env
-# echo "S3_BUCKET_NAME=${aws_s3_bucket.private_s3_bucket.bucket}" >> .env
-
-# sudo su
-# cd /
-# mkdir ./upload
-# sudo chown ec2-user:ec2-user /home/ec2-user/script/*
-# sudo systemctl stop node.service
-# sudo systemctl daemon-reload
-# sudo systemctl enable node.service
-# sudo systemctl start node.service
-
-# source ./.env
-
-# EOF
-
-#   root_block_device {
-#     volume_size           = 50 # root volume size in GB
-#     delete_on_termination = true
-#   }
-
-
-#   tags = {
-#     Name = "Terraform Managed EC2 Instance"
-#   }
-
-
-#   lifecycle {
-#     ignore_changes = [subnet_id]
-#   }
-
-#   availability_zone    = data.aws_availability_zones.available.names[0]
-#   iam_instance_profile = aws_iam_instance_profile.ec2_instance_profile.name
-
-# }
 
 resource "aws_iam_role" "ec2_csye6225_role" {
   name = "EC2-CSYE6225"
@@ -637,13 +756,6 @@ resource "aws_iam_instance_profile" "ec2_instance_profile" {
 }
 
 
-
-
-# output "public_ip" {
-#   value = aws_instance.Terraform_Managed.public_ip
-# }
-
-
 data "aws_route53_zone" "main-route" {
   name = var.domain_name
 }
@@ -667,5 +779,5 @@ resource "aws_route53_record" "web" {
 }
 
 resource "aws_cloudwatch_log_group" "csye6225" {
-  name ="csye6225"
+  name = "csye6225"
 }
